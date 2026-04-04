@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ReThink Brand Colors */
+    /* Primary: Black #0D0D0D */
+    /* Secondary: Cream #F5F4F0 */
+    /* Accent: Gold #C9A84C */
+
+    --background: 45 14% 95%; /* #F5F4F0 cream */
+    --foreground: 0 0% 5%; /* #0D0D0D black */
+
+    --card: 45 14% 95%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 45 14% 95%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 0 0% 5%; /* #0D0D0D */
+    --primary-foreground: 45 14% 95%;
+
+    --secondary: 45 14% 90%;
+    --secondary-foreground: 0 0% 5%;
+
+    --muted: 45 10% 88%;
+    --muted-foreground: 0 0% 35%;
+
+    --accent: 43 52% 54%; /* #C9A84C gold */
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 45 10% 85%;
+    --input: 45 10% 85%;
+    --ring: 43 52% 54%;
+
+    --radius: 0.25rem;
+  }
+
+  .dark {
+    --background: 0 0% 5%; /* #0D0D0D */
+    --foreground: 45 14% 95%; /* #F5F4F0 */
+
+    --card: 0 0% 8%;
+    --card-foreground: 45 14% 95%;
+
+    --popover: 0 0% 8%;
+    --popover-foreground: 45 14% 95%;
+
+    --primary: 45 14% 95%;
+    --primary-foreground: 0 0% 5%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 45 14% 95%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 45 10% 65%;
+
+    --accent: 43 52% 54%;
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 43 52% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* RTL Support */
+  html[dir="rtl"] {
+    direction: rtl;
+  }
+
+  /* Arabic Typography Enhancements */
+  html[lang="ar"] {
+    font-feature-settings: "liga" 1, "calt" 1, "kern" 1;
+  }
+
+  /* Improved Arabic text rendering */
+  .arabic-text {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  /* RTL-aware spacing utilities */
+  .rtl-space-x > * + * {
+    margin-inline-start: 1rem;
+  }
+
+  .rtl-space-x-2 > * + * {
+    margin-inline-start: 0.5rem;
+  }
+
+  .rtl-space-x-4 > * + * {
+    margin-inline-start: 1rem;
+  }
+
+  .rtl-space-x-6 > * + * {
+    margin-inline-start: 1.5rem;
+  }
+
+  /* Gold accent underline for headings */
+  .gold-underline {
+    position: relative;
+  }
+
+  .gold-underline::after {
+    content: "";
+    position: absolute;
+    bottom: -4px;
+    right: 0;
+    width: 60px;
+    height: 3px;
+    background-color: #C9A84C;
+  }
+
+  /* Article card hover effect */
+  .article-card {
+    @apply transition-all duration-300;
+  }
+
+  .article-card:hover {
+    @apply -translate-y-1;
+  }
+
+  /* Section divider */
+  .section-divider {
+    @apply border-t border-border;
+  }
+
+  /* Focus styles for accessibility */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background;
+  }
+}
+
+/* Custom scrollbar for Arabic content */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground));
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
