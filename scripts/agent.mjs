@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH    = path.join(__dirname, '../src/data.json');
 const HISTORY_PATH = path.join(__dirname, '../src/topics_history.json');
-const API_KEY          = process.env.ANTHROPIC_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
@@ -30,136 +30,157 @@ async function notify(msg) {
 
 function loadHistory() {
   try {
-    if (!fs.existsSync(HISTORY_PATH)) return [];
+    if (!fs.existsSync(HISTORY_PATH)) {
+      fs.writeFileSync(HISTORY_PATH, JSON.stringify([], null, 2), 'utf-8');
+      return [];
+    }
     const raw = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8'));
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     return raw.filter(t => t.ts > cutoff);
-  } catch { return []; }
+  } catch (e) {
+    return [];
+  }
 }
 
 function saveHistory(history, newTopic) {
-  const updated = [...history, { topic: newTopic, ts: Date.now() }].slice(-60);
-  fs.writeFileSync(HISTORY_PATH, JSON.stringify(updated, null, 2), 'utf-8');
-}
-
-async function callClaude(system, user, maxTokens = 1200) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: user }]
-    })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Claude API error');
-  return data.content[0].text.trim();
-}
-
-async function researchTopic(topic) {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const updated = [...history, { topic: newTopic, ts: Date.now() }].slice(-60);
+    fs.writeFileSync(HISTORY_PATH, JSON.stringify(updated, null, 2), 'utf-8');
+  } catch (e) {}
+}
+
+async function callGemini(system, user, maxTokens = 1200, attempt = 1) {
+  const maxAttempts = 3;
+  const backoff = 1000 * attempt;
+  
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + GEMINI_API_KEY, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 400,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{ role: 'user', content: 'ابحث عن واقعة او رقم حقيقي موثق يتعلق بهذا الموضوع: "' + topic + '". اريد حدثا واحدا غير متوقع. اجب بجملتين بالعربية.' }]
+        contents: [{
+          parts: [{
+            text: system + '\n\n' + user
+          }]
+        }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.7
+        }
       })
     });
+    
     const data = await res.json();
-    const textBlock = data.content?.find(b => b.type === 'text');
-    return textBlock?.text?.trim() || '';
-  } catch { return ''; }
+    
+    if (!res.ok) {
+      throw new Error(data.error?.message || 'Gemini API error');
+    }
+    
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+      throw new Error('Invalid response');
+    }
+    
+    return data.candidates[0].content.parts[0].text.trim();
+  } catch (e) {
+    if (attempt < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return callGemini(system, user, maxTokens, attempt + 1);
+    }
+    throw e;
+  }
 }
 
-const SYSTEM = 'انت محرر اول في منصة اعد التفكير العربية للتحليل الفكري النقدي. صوتك: محقق لا معلم. متشكك لا منبه. دافئ لا بارد. قواعد الكتابة: الجملة لا تتجاوز 25 كلمة. الفقرة لا تتجاوز 4 جمل. الصوت المبني للمجهول ممنوع. الافتتاحية تبدا بالصدمة لا بالسياق. لا شرطة مضاعفة. ممنوع: في الختام / دعنا نتامل / يعد ذلك / من المؤكد / في عالم / في ظل. الخاتمة تفتح سؤالا لا تغلق اجابة. المكتوب بالعربية لا المترجم اليها.';
+const SYSTEM = 'أنت محرر أول في منصة أعد التفكير العربية للتحليل الفكري النقدي. اكتب بأسلوب عميق وتحليلي وجريء.';
 
 async function generateArticle(history) {
   const cats = ['هوية','نقد','ثقافة','فكر','مجتمع'];
   const cat  = cats[Math.floor(Math.random() * cats.length)];
   const used = history.map(h => h.topic).join('، ');
 
-  const topic = await callClaude(SYSTEM,
-    'اقترح موضوعا فكريا نقديا في تصنيف "' + cat + '" لمنصة اعد التفكير. المواضيع المستخدمة مؤخرا (تجنبها): ' + (used || 'لا يوجد') + '. اجب بموضوع واحد فقط في جملة واحدة.', 100);
+  try {
+    const topic = await callGemini(SYSTEM,
+      'اقترح موضوعاً فكرياً نقدياً في تصنيف "' + cat + '". المواضيع السابقة: ' + (used || 'لا توجد'));
 
-  const research = await researchTopic(topic);
+    const raw = await callGemini(SYSTEM,
+      'الموضوع: "' + topic + '"\nالتصنيف: ' + cat + '\n\nاكتب مقالاً عميقاً. اجب بـ JSON:\n{"title":"عنوان","desc":"وصف","body":"محتوى 300+ كلمة"}',
+      1500);
 
-  const diagnostics = await callClaude(SYSTEM,
-    'الموضوع: "' + topic + '" واقعة بحثية: "' + research + '" اجب على هذه الاسئلة الخمسة بايجاز (جملة لكل سؤال): 1.لماذا يهم هذا الموضوع الان؟ 2.من يختار الصمت عنه؟ 3.من يستفيد من الرواية السائدة؟ 4.اين يتكرر هذا في التاريخ العربي؟ 5.ماذا يحدث لو طرح على مائدة عشاء عربية؟', 400);
-
-  const raw = await callClaude(SYSTEM,
-    'الموضوع: "' + topic + '" التصنيف: ' + cat + ' الواقعة البحثية: "' + research + '" التشخيص: ' + diagnostics + ' اكتب المقال الكامل. ابدا مباشرة بالجملة الافتتاحية الصادمة. لا مقدمات. اجب بـ JSON فقط: {"title":"عنوان جريء لا يتجاوز 7 كلمات","desc":"جملة افتتاحية واحدة تشويقية","body":"نص المقال الكامل"}', 1000);
-
-  const obj   = JSON.parse(raw.replace(/```json|```/g, '').trim());
-  const reads = ['٦ د','٧ د','٨ د','٩ د','١٠ د','١٢ د'];
-  saveHistory(history, topic);
-  return { cat, title: obj.title, desc: obj.desc, body: obj.body || '', date: arabicDate(), read: reads[Math.floor(Math.random() * reads.length)] };
+    const obj = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const reads = ['٦ د','٧ د','٨ د','٩ د','١٠ د','١٢ د'];
+    saveHistory(history, topic);
+    return { cat, title: obj.title, desc: obj.desc, body: obj.body || '', date: arabicDate(), read: reads[Math.floor(Math.random() * reads.length)] };
+  } catch (e) {
+    console.error('Article failed:', e.message);
+    throw e;
+  }
 }
 
 async function generateNews() {
   const tags = ['حوار','تغطية','شراكة','جائزة','تقرير','فعالية'];
   const tag  = tags[Math.floor(Math.random() * tags.length)];
-  const raw  = await callClaude('انت محرر اخبار لمنصة اعد التفكير الفكرية العربية المستقلة. اكتب بأسلوب صحفي مباشر. لا مبالغة ولا حشو.',
-    'اكتب خبرا صحفيا من نوع "' + tag + '" عن نشاط منصة اعد التفكير او تاثيرها. الخبر محدد وواقعي. اجب بـ JSON فقط: {"title":"عنوان الخبر","desc":"وصف الخبر جملة او جملتان"}', 300);
-  const obj = JSON.parse(raw.replace(/```json|```/g, '').trim());
-  return { tag, title: obj.title, desc: obj.desc, date: arabicDate() };
+  
+  try {
+    const raw  = await callGemini('أنت محرر أخبار لأعد التفكير.',
+      'خبر "' + tag + '" عن المنصة. اجب بـ JSON:\n{"title":"عنوان","desc":"وصف"}');
+    const obj = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    return { tag, title: obj.title, desc: obj.desc, date: arabicDate() };
+  } catch (e) {
+    console.error('News failed:', e.message);
+    throw e;
+  }
 }
 
 async function generateBusiness() {
-  const tags = ['اعلام','استثمار','توسع','تقنية','شراكة','اطلاق'];
+  const tags = ['إعلام','استثمار','توسع','تقنية','شراكة','إطلاق'];
   const tag  = tags[Math.floor(Math.random() * tags.length)];
-  const raw  = await callClaude('انت محرر اخبار اعمال لمنصة اعد التفكير. اكتب بلغة اعمال واضحة ومباشرة. الارقام والحقائق تتقدم على الانشاء.',
-    'اكتب خبر اعمال من نوع "' + tag + '" عن نمو منصة اعد التفكير تجاريا. اجب بـ JSON فقط: {"title":"عنوان الخبر","desc":"وصف الخبر جملة او جملتان"}', 300);
-  const obj = JSON.parse(raw.replace(/```json|```/g, '').trim());
-  return { tag, title: obj.title, desc: obj.desc, date: arabicDate() };
+  
+  try {
+    const raw  = await callGemini('أنت محرر أخبار أعمال احترافي.',
+      'خبر أعمال "' + tag + '" عن نمو المنصة. اجب بـ JSON:\n{"title":"عنوان","desc":"وصف"}');
+    const obj = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    return { tag, title: obj.title, desc: obj.desc, date: arabicDate() };
+  } catch (e) {
+    console.error('Business failed:', e.message);
+    throw e;
+  }
 }
 
 async function main() {
   const t0 = Date.now();
-  console.log('ReThink Agent v2.0 — ' + new Date().toISOString());
-  if (!API_KEY) throw new Error('ANTHROPIC_API_KEY is not set');
+  console.log('ReThink Agent v3.0 (Gemini) — ' + new Date().toISOString());
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
 
-  const data    = JSON.parse(fs.readFileSync(DATA_PATH, 'utf-8'));
-  const history = loadHistory();
+  try {
+    const data    = JSON.parse(fs.readFileSync(DATA_PATH, 'utf-8'));
+    const history = loadHistory();
 
-  console.log('Generating article...');
-  const article  = await generateArticle(history);
-  console.log('Article: ' + article.title);
+    console.log('✓ Generating article...');
+    const article  = await generateArticle(history);
+    console.log('✓ Article: ' + article.title);
 
-  console.log('Generating news...');
-  const news     = await generateNews();
-  console.log('News: ' + news.title);
+    console.log('✓ Generating news...');
+    const news     = await generateNews();
+    console.log('✓ News: ' + news.title);
 
-  console.log('Generating business news...');
-  const business = await generateBusiness();
-  console.log('Business: ' + business.title);
+    console.log('✓ Generating business...');
+    const business = await generateBusiness();
+    console.log('✓ Business: ' + business.title);
 
-  data.articles  = [article,  ...data.articles ].slice(0, 20);
-  data.news      = [news,     ...data.news     ].slice(0, 20);
-  data.business  = [business, ...data.business ].slice(0, 20);
-  data.lastUpdate = new Date().toISOString();
+    data.articles  = [article,  ...data.articles ].slice(0, 20);
+    data.news      = [news,     ...data.news     ].slice(0, 20);
+    data.business  = [business, ...data.business ].slice(0, 20);
+    data.lastUpdate = new Date().toISOString();
 
-  fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log('Done in ' + elapsed + 's');
+    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    console.log('✓ Done in ' + elapsed + 's');
 
-  await notify('<b>ReThink Agent</b> — تحديث يومي ناجح\n<b>مقال:</b> ' + article.title + '\n<b>المدة:</b> ' + elapsed + 's');
+    await notify('<b>ReThink Agent ✓</b>\n<b>مقال:</b> ' + article.title + '\n<b>المدة:</b> ' + elapsed + 's');
+  } catch (err) {
+    console.error('Agent failed:', err.message);
+    await notify('<b>❌ ReThink Agent — فشل</b>\n<code>' + err.message.substring(0, 100) + '</code>');
+    process.exit(1);
+  }
 }
 
-main().catch(async err => {
-  console.error('Agent failed:', err.message);
-  await notify('<b>ReThink Agent — فشل</b>\n<code>' + err.message + '</code>');
-  process.exit(1);
-});
+main();
