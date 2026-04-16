@@ -14,20 +14,27 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Run ReThink AI Content Agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node scripts/agent.mjs
+
       - name: Commit and push
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           git config --global user.email "agent@rethink-platform.com"
           git config --global user.name "ReThink Agent"
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/Khaledalnaser/rethink-website.git
           git add src/data.json src/topics_history.json
           git diff --staged --quiet || git commit -m "Daily content update - $(date +'%Y-%m-%d')"
           git push
