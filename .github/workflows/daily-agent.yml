@@ -1,0 +1,33 @@
+name: ReThink Daily Content Agent
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+
+jobs:
+  generate-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run ReThink AI Content Agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/agent.mjs
+      - name: Commit and push
+        run: |
+          git config --global user.email "agent@rethink-platform.com"
+          git config --global user.name "ReThink Agent"
+          git add src/data.json src/topics_history.json
+          git diff --staged --quiet || git commit -m "Daily content update - $(date +'%Y-%m-%d')"
+          git push
